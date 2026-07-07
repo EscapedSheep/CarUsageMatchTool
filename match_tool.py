@@ -8,7 +8,7 @@ GUI - tkinter + openpyxl
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import threading, os, re
+import threading, json, os, re
 from datetime import datetime
 from collections import defaultdict
 import openpyxl
@@ -205,6 +205,39 @@ def extract_destination(ref, dp_map=None):
             return f"??{code}"  # 未知代码，标记以便人工确认
     return ""
 
+def _dp_config_path():
+    """DP 映射配置文件的路径，保存到用户目录下（避免 exe 所在目录无写入权限）"""
+    import sys
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+        dir_name = "DHL-MatchTool"
+    else:
+        base = os.path.expanduser("~")
+        dir_name = ".DHL-MatchTool"
+    cfg_dir = os.path.join(base, dir_name)
+    os.makedirs(cfg_dir, exist_ok=True)
+    return os.path.join(cfg_dir, "dp_config.json")
+
+def load_dp_map():
+    """从配置文件加载 DP 映射，如果文件不存在或损坏则使用默认值"""
+    path = _dp_config_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict) and data:
+                return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return dict(DP_TO_CITY)
+
+def save_dp_map(dp_map):
+    """将 DP 映射保存到配置文件"""
+    try:
+        with open(_dp_config_path(), "w", encoding="utf-8") as f:
+            json.dump(dp_map, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass  # 保存失败不阻塞
+
 # ============================================================ GUI ============================================================
 
 class MatchApp:
@@ -222,7 +255,7 @@ class MatchApp:
         self.tgt_wb = None; self.tgt_path = None
         self.tgt_headers = None; self.tgt_rows = None; self.tgt_sheet = None
         self.mapping_rows = []
-        self.dp_map = dict(DP_TO_CITY)        # 可编辑的 DP→城市映射
+        self.dp_map = load_dp_map()          # 从文件加载 DP 映射（持久化）
         self._has_cross_sheet_dups = False  # 是否有跨Sheet重复
 
         self._build_ui()
@@ -494,7 +527,7 @@ class MatchApp:
         """弹出窗口编辑 DP代码 → 城市的映射字典"""
         dlg = tk.Toplevel(self.root)
         dlg.title("DP 代码 → 目的地城市 映射")
-        dlg.geometry("420x480")
+        dlg.geometry("440x520")
         dlg.resizable(True, True)
         dlg.transient(self.root)
         dlg.grab_set()
@@ -505,56 +538,74 @@ class MatchApp:
         ttk.Label(main, text="DP代码 → 城市名，匹配时从 Reference 自动解析 Destination",
                   foreground="gray").pack(anchor=tk.W, pady=(0, 8))
 
-        # 可滚动表格
-        canvas = tk.Canvas(main, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(main, orient=tk.VERTICAL, command=canvas.yview)
+        # 表格区 — 限制高度，确保底部按钮始终可见
+        table_frame = ttk.Frame(main)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(table_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
-        inner = ttk.Frame(canvas)
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=inner, anchor="nw")
+        self._dp_inner = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=self._dp_inner, anchor="nw")
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 表头
-        ttk.Label(inner, text="DP 代码", width=12, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=0, padx=2, pady=2)
-        ttk.Label(inner, text="→", width=3).grid(row=0, column=1)
-        ttk.Label(inner, text="目的地城市", width=22, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=2, padx=2, pady=2)
+        def _on_configure(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        self._dp_inner.bind("<Configure>", _on_configure)
 
-        entries = []
-        for i, (code, city) in enumerate(sorted(self.dp_map.items())):
-            code_var = tk.StringVar(value=code)
-            city_var = tk.StringVar(value=city)
-            ttk.Entry(inner, textvariable=code_var, width=14).grid(row=i + 1, column=0, padx=2, pady=1)
-            ttk.Label(inner, text="→", width=3).grid(row=i + 1, column=1)
-            ttk.Entry(inner, textvariable=city_var, width=24).grid(row=i + 1, column=2, padx=2, pady=1)
-            entries.append((code_var, city_var))
-
-        # 按钮
+        # 按钮区 — 固定高度，始终可见
         bf = ttk.Frame(main)
         bf.pack(fill=tk.X, pady=(8, 0))
 
-        def save():
-            new_map = {}
-            for cv, nv in entries:
-                c = cv.get().strip()
-                n = nv.get().strip()
-                if c and n:
-                    new_map[c] = n
-            if new_map:
-                self.dp_map = new_map
-                self.log(f"DP 映射已更新: {len(self.dp_map)} 条", "info")
-            dlg.destroy()
-
-        def add_row():
-            ttk.Entry(inner, textvariable=tk.StringVar(value=""), width=14).grid(row=len(entries) + 1, column=0, padx=2, pady=1)
-            ttk.Label(inner, text="→", width=3).grid(row=len(entries) + 1, column=1)
-            ttk.Entry(inner, textvariable=tk.StringVar(value=""), width=24).grid(row=len(entries) + 1, column=2, padx=2, pady=1)
-            entries.append((tk.StringVar(value=""), tk.StringVar(value="")))
-            canvas.yview_moveto(1.0)
-
-        ttk.Button(bf, text="+ 添加行", command=add_row).pack(side=tk.LEFT)
-        ttk.Button(bf, text="💾 保存", command=save).pack(side=tk.RIGHT)
+        ttk.Button(bf, text="+ 添加行", command=self._dp_add_row).pack(side=tk.LEFT)
+        ttk.Button(bf, text="💾 保存", command=lambda: self._dp_save(dlg)).pack(side=tk.RIGHT)
         ttk.Button(bf, text="取消", command=dlg.destroy).pack(side=tk.RIGHT, padx=4)
+
+        self._dp_entries = []
+        self._dp_canvas = canvas
+        self._dp_populate()
+
+    def _dp_populate(self):
+        for w in self._dp_inner.winfo_children():
+            w.destroy()
+        self._dp_entries.clear()
+        # 表头
+        ttk.Label(self._dp_inner, text="DP 代码", width=12,
+                  font=("TkDefaultFont", 9, "bold")).grid(row=0, column=0, padx=2, pady=2)
+        ttk.Label(self._dp_inner, text="→", width=3).grid(row=0, column=1)
+        ttk.Label(self._dp_inner, text="目的地城市", width=22,
+                  font=("TkDefaultFont", 9, "bold")).grid(row=0, column=2, padx=2, pady=2)
+        for i, (code, city) in enumerate(sorted(self.dp_map.items())):
+            self._dp_add_entry_row(i + 1, code, city)
+
+    def _dp_add_entry_row(self, row_idx, code="", city=""):
+        cv = tk.StringVar(value=code)
+        nv = tk.StringVar(value=city)
+        ttk.Entry(self._dp_inner, textvariable=cv, width=14).grid(row=row_idx, column=0, padx=2, pady=1)
+        ttk.Label(self._dp_inner, text="→", width=3).grid(row=row_idx, column=1)
+        ttk.Entry(self._dp_inner, textvariable=nv, width=24).grid(row=row_idx, column=2, padx=2, pady=1)
+        self._dp_entries.append((cv, nv))
+        self._dp_canvas.yview_moveto(1.0)
+
+    def _dp_add_row(self):
+        row_idx = len(self._dp_entries) + 1
+        self._dp_add_entry_row(row_idx)
+        # 强制更新 scrollregion
+        self._dp_canvas.configure(scrollregion=self._dp_canvas.bbox("all"))
+
+    def _dp_save(self, dlg):
+        new_map = {}
+        for cv, nv in self._dp_entries:
+            c = cv.get().strip()
+            n = nv.get().strip()
+            if c and n:
+                new_map[c] = n
+        if new_map:
+            self.dp_map = new_map
+            save_dp_map(self.dp_map)
+            self.log(f"DP 映射已更新: {len(self.dp_map)} 条", "info")
+        dlg.destroy()
 
     def _start_matching(self):
         if not self.mapping_rows:
