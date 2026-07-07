@@ -3,10 +3,7 @@ echo ============================================
 echo   DHL Match Tool - Windows Build Script
 echo ============================================
 echo.
-echo   Place this .bat and match_tool.py in the same folder, then run.
-echo.
 
-REM Check Python
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Python not found!
@@ -18,46 +15,38 @@ if %errorlevel% neq 0 (
 python --version
 echo.
 
-REM Install dependencies
-echo [1/3] Installing openpyxl...
-pip install openpyxl -q
+echo [1/2] Installing dependencies...
+pip install openpyxl pyinstaller -q
 if %errorlevel% neq 0 (
-    echo [ERROR] openpyxl install failed
+    echo [ERROR] pip install failed. Try running as Administrator.
+    pause
+    exit /b 1
+)
+echo Dependencies OK.
+echo.
+
+echo [2/2] Building .exe (1-2 minutes)...
+python -m PyInstaller --onefile --noconsole --name "DHL_Match_Tool" match_tool.py
+if %errorlevel% neq 0 (
+    echo.
+    echo [ERROR] Build failed.
+    echo Try: python -m pip install pyinstaller --upgrade
     pause
     exit /b 1
 )
 
-REM Install PyInstaller
-echo [2/3] Installing PyInstaller...
-pip install pyinstaller -q
-if %errorlevel% neq 0 (
-    echo [ERROR] PyInstaller install failed
-    pause
-    exit /b 1
-)
-
-REM Build exe
-echo [3/3] Building standalone .exe (1-2 minutes)...
-pyinstaller --onefile --noconsole --name "DHL_Match_Tool" match_tool.py
-if %errorlevel% neq 0 (
-    echo [ERROR] Build failed
-    pause
-    exit /b 1
-)
-
-REM Copy to desktop
 copy /Y "dist\DHL_Match_Tool.exe" "%USERPROFILE%\Desktop\DHL_Match_Tool.exe" >nul 2>&1
 if %errorlevel% equ 0 (
     echo.
     echo ============================================
-    echo   Build complete!
-    echo   Copied to Desktop: DHL_Match_Tool.exe
-    echo   Share this .exe with colleagues - no setup needed.
+    echo   SUCCESS!
+    echo   Desktop: DHL_Match_Tool.exe
+    echo   Share this file - no Python required.
     echo ============================================
 ) else (
     echo.
     echo ============================================
-    echo   Build complete!
+    echo   SUCCESS!
     echo   File: dist\DHL_Match_Tool.exe
     echo ============================================
 )
