@@ -17,7 +17,7 @@ if %errorlevel% neq 0 (
 python --version
 echo.
 
-echo [1/3] Installing dependencies...
+echo [1/2] Installing dependencies...
 pip install openpyxl Pillow pyinstaller -q
 if %errorlevel% neq 0 (
     echo [ERROR] pip install failed. Try running as Administrator.
@@ -27,16 +27,7 @@ if %errorlevel% neq 0 (
 echo Dependencies OK.
 echo.
 
-echo [2/3] Checking Pillow install...
-python -c "from PIL import Image; print('Pillow OK')" 2>nul
-if %errorlevel% neq 0 (
-    echo [ERROR] Pillow not installed correctly. Try: pip install Pillow
-    pause
-    exit /b 1
-)
-echo.
-
-echo [3/3] Building .exe (1-2 minutes)...
+echo [2/2] Building .exe (1-2 minutes)...
 python -m PyInstaller --onefile --noconsole --name "DHL_Match_Tool" match_tool.py
 if %errorlevel% neq 0 (
     echo [ERROR] Build failed.

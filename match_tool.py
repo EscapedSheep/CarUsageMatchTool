@@ -7,7 +7,7 @@ Build: pyinstaller --onefile --noconsole --name "DHL_Match_Tool" match_tool.py
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import threading, os, re, shutil, json
+import threading, json, os, re, shutil
 from datetime import datetime
 from collections import defaultdict
 import openpyxl
@@ -768,18 +768,5 @@ class MatchApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    # Check Pillow availability
-    try:
-        from PIL import Image as _PILImage
-    except ImportError:
-        messagebox.showwarning(
-            "Missing Dependency",
-            "Pillow library not found!\n\n"
-            "Image copying will NOT work without Pillow.\n\n"
-            "Please install it:\n"
-            "  pip install Pillow\n\n"
-            "Or re-run build_windows.bat which includes Pillow."
-        )
-
     MatchApp(root)
     root.mainloop()
