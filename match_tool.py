@@ -8,7 +8,7 @@ GUI - tkinter + openpyxl
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import threading, json, os, re
+import threading, json, os, re, shutil
 from datetime import datetime
 from collections import defaultdict
 import openpyxl
@@ -143,7 +143,11 @@ def copy_images_for_row(source_wb, sheet_name, src_row_0based, target_ws, tgt_ro
     for img, img_col in image_map[key]:
         if img_col != src_col_idx: continue
         try:
-            new_img = XLImage(img.ref)
+            # 确保每次读取时流位置正确（Windows 上 openpyxl 的 ref 可能未重置）
+            img_data = img.ref
+            if hasattr(img_data, 'seek'):
+                img_data.seek(0)
+            new_img = XLImage(img_data)
             new_img.width = float(img.width) if img.width else 100
             new_img.height = float(img.height) if img.height else 100
             marker = AnchorMarker(col=tgt_col_idx, colOff=0, row=tgt_row_1based - 1, rowOff=0)
@@ -452,7 +456,7 @@ class MatchApp:
                     loc_str = " / ".join(f"{s}第{r}行" for s, r in locs)
                     self.log(f"  · {ref} → {loc_str}", "warn")
                 if n > 10: self.log(f"  ... 还有 {n-10} 个", "warn")
-                self.log("  规则: 后加载的 Sheet 会覆盖先加载的同名 Reference", "info")
+                self.log("  请先在源文件中解决重复问题，再重新匹配。", "warn")
             else:
                 self.log("✓ 无跨 Sheet 重复", "good")
 
@@ -624,9 +628,18 @@ class MatchApp:
 
     def _do_match(self):
         try:
-            # 重新打开源文件确保图片干净
-            _src_wb = openpyxl.load_workbook(self.src_path)
+            # 复用 _select_src 阶段已打开的源文件，不再重复加载
+            _src_wb = self.src_wb
             _headers, _, _images = read_source_data(_src_wb, self.selected_sheets)
+
+            # 输出文件：先复制目标文件，保留其中已有的图片（邮件截图等）
+            out = os.path.splitext(self.tgt_path)[0] + "_matched.xlsx"
+            shutil.copy2(self.tgt_path, out)
+
+            # 确保输出文件可写（源文件可能是只读的，copy2 会继承权限）
+            os.chmod(out, 0o666)
+
+            # 打开复制后的文件进行修改
 
             skn = self.src_key_var.get(); tkn = self.tgt_key_var.get()
             ski = next((i for i, h in enumerate(_headers) if norm(h) == skn), -1)
@@ -675,7 +688,11 @@ class MatchApp:
 
             # 匹配
             matched = unmatched = skipped = 0
+
+            # 重新加载目标数据与写入目标对齐
+            self.tgt_wb = openpyxl.load_workbook(out)
             tws = self.tgt_wb[self.tgt_sheet]
+            _, _tgt_rows = read_sheet_rows(self.tgt_wb, self.tgt_sheet)
 
             note_si = next((i for i, h in enumerate(_headers) if norm(h).lower() == "note"), -1)
             note_ti = next((i for i, h in enumerate(self.tgt_headers) if norm(h).lower() == "note"), -1)
@@ -684,7 +701,7 @@ class MatchApp:
             # Destination 字段不从源文件取值，改为从 Reference 解析
             dest_ti = next((ti for si, ti, sn, tn in cmaps if "destination" in tn.lower()), -1)
 
-            for ti_, row in enumerate(self.tgt_rows):
+            for ti_, row in enumerate(_tgt_rows):
                 k = str(row[tki]).strip() if tki < len(row) else ""
                 if not k: skipped += 1; continue
                 if k not in idx: unmatched += 1; continue
@@ -709,7 +726,6 @@ class MatchApp:
             if skipped: self._uilog(f"  ⊝ 跳过空键: {skipped} 行", "info")
             self._uilog("=" * 40, "info")
 
-            out = os.path.splitext(self.tgt_path)[0] + "_matched.xlsx"
             self.tgt_wb.save(out)
             self._uilog(f"📥 输出: {os.path.basename(out)}", "good")
             self._output_path = out
