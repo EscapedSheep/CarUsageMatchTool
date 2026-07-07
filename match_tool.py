@@ -143,11 +143,11 @@ def copy_images_for_row(source_wb, sheet_name, src_row_0based, target_ws, tgt_ro
     for img, img_col in image_map[key]:
         if img_col != src_col_idx: continue
         try:
-            # 确保每次读取时流位置正确（Windows 上 openpyxl 的 ref 可能未重置）
-            img_data = img.ref
-            if hasattr(img_data, 'seek'):
-                img_data.seek(0)
-            new_img = XLImage(img_data)
+            # Use _data() for raw bytes, then fresh BytesIO.
+            # img.ref (BytesIO) may be consumed on Windows.
+            import io
+            raw = img._data()
+            new_img = XLImage(io.BytesIO(raw))
             new_img.width = float(img.width) if img.width else 100
             new_img.height = float(img.height) if img.height else 100
             marker = AnchorMarker(col=tgt_col_idx, colOff=0, row=tgt_row_1based - 1, rowOff=0)
@@ -157,43 +157,6 @@ def copy_images_for_row(source_wb, sheet_name, src_row_0based, target_ws, tgt_ro
             copied += 1
         except Exception: pass
     return copied
-
-# ============================================================ 默认映射 ============================================================
-
-DEFAULT_MAPPINGS = [
-    ("Destination", "Destination"),
-    ("AWB", "Bill of Lading No. (AWB, B/L)"),
-    ("Plate/车牌", "License Plate No."),
-    ("Actual Date & Time \nfor arrival", "ATA (Actual Arrival)"),
-    ("Acual Date & Time \nfor arrival", "ATA (Actual Arrival)"),  # 兼容源数据中可能存在的拼写错误
-    ("Planned Date & Time \nfor loading", "ETA (Planned Pickup)"),
-    ("Planned Time \nfor loading", "ETA (Planned Pickup)"),
-    ("Cartons", "Number of Boxes"),
-    ("Note", "Note"),
-    ("Weight", "Weight"),
-    ("Price/车费", "Price"),
-    ("Trucker/车队", "Trucker"),
-]
-
-# DP代码 → 目的地城市（可从 Reference 中 DP 后面的代码解析真实目的地）
-DP_TO_CITY = {
-    "BOCH": "Bochum",
-    "BRUC": "Bruchsal",
-    "DORS": "Dorsten",
-    "EUTI": "Eutingen",
-    "GREV": "Greven",
-    "HAGE": "Hagen",
-    "HANN": "Hannover",
-    "KITZ": "Kitzingen",
-    "KÖNG": "Köngen",
-    "LAHR": "Lahr",
-    "NEUW": "Neuwied",
-    "OBER": "Obertshausen",
-    "SAUL": "Saulheim",
-    "SPEY": "Speyer",
-    "STAU": "Staufenberg",
-}
-
 def extract_destination(ref, dp_map=None):
     """从 Reference 中提取 DP 代码并映射为目的地城市名。
     例: TEM-SKY-DPHAGE-060726-4 → Hagen
