@@ -3,6 +3,8 @@ echo ============================================
 echo   DHL Match Tool - Windows Build Script
 echo ============================================
 echo.
+echo   Place this .bat and match_tool.py in the same folder, then run.
+echo.
 
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
@@ -15,8 +17,8 @@ if %errorlevel% neq 0 (
 python --version
 echo.
 
-echo [1/2] Installing dependencies...
-pip install openpyxl pyinstaller -q
+echo [1/3] Installing dependencies...
+pip install openpyxl Pillow pyinstaller -q
 if %errorlevel% neq 0 (
     echo [ERROR] pip install failed. Try running as Administrator.
     pause
@@ -25,10 +27,18 @@ if %errorlevel% neq 0 (
 echo Dependencies OK.
 echo.
 
-echo [2/2] Building .exe (1-2 minutes)...
+echo [2/3] Checking Pillow install...
+python -c "from PIL import Image; print('Pillow OK')" 2>nul
+if %errorlevel% neq 0 (
+    echo [ERROR] Pillow not installed correctly. Try: pip install Pillow
+    pause
+    exit /b 1
+)
+echo.
+
+echo [3/3] Building .exe (1-2 minutes)...
 python -m PyInstaller --onefile --noconsole --name "DHL_Match_Tool" match_tool.py
 if %errorlevel% neq 0 (
-    echo.
     echo [ERROR] Build failed.
     echo Try: python -m pip install pyinstaller --upgrade
     pause
