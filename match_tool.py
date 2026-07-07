@@ -8,7 +8,7 @@ GUI - tkinter + openpyxl
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-import threading, os
+import threading, os, re
 from datetime import datetime
 from collections import defaultdict
 import openpyxl
@@ -171,6 +171,40 @@ DEFAULT_MAPPINGS = [
     ("Trucker/车队", "Trucker"),
 ]
 
+# DP代码 → 目的地城市（可从 Reference 中 DP 后面的代码解析真实目的地）
+DP_TO_CITY = {
+    "BOCH": "Bochum",
+    "BRUC": "Bruchsal",
+    "DORS": "Dorsten",
+    "EUTI": "Eutingen",
+    "GREV": "Greven",
+    "HAGE": "Hagen",
+    "HANN": "Hannover",
+    "KITZ": "Kitzingen",
+    "KÖNG": "Köngen",
+    "LAHR": "Lahr",
+    "NEUW": "Neuwied",
+    "OBER": "Obertshausen",
+    "SAUL": "Saulheim",
+    "SPEY": "Speyer",
+    "STAU": "Staufenberg",
+}
+
+def extract_destination(ref, dp_map=None):
+    """从 Reference 中提取 DP 代码并映射为目的地城市名。
+    例: TEM-SKY-DPHAGE-060726-4 → Hagen
+    如果 dp_map 为 None，使用全局 DP_TO_CITY"""
+    if dp_map is None:
+        dp_map = DP_TO_CITY
+    m = re.search(r'DP(\w+?)-', str(ref))
+    if m:
+        code = m.group(1)
+        if code in dp_map:
+            return dp_map[code]
+        else:
+            return f"??{code}"  # 未知代码，标记以便人工确认
+    return ""
+
 # ============================================================ GUI ============================================================
 
 class MatchApp:
@@ -188,6 +222,7 @@ class MatchApp:
         self.tgt_wb = None; self.tgt_path = None
         self.tgt_headers = None; self.tgt_rows = None; self.tgt_sheet = None
         self.mapping_rows = []
+        self.dp_map = dict(DP_TO_CITY)        # 可编辑的 DP→城市映射
         self._has_cross_sheet_dups = False  # 是否有跨Sheet重复
 
         self._build_ui()
@@ -269,6 +304,7 @@ class MatchApp:
         self.dup_st = tk.StringVar()
         ttk.Label(bf, textvariable=self.dup_st, foreground="#ff6d00",
                   font=("TkDefaultFont", 10, "bold")).pack(side=tk.LEFT, padx=12)
+        ttk.Button(bf, text="⚙ DP→城市", command=self._open_dp_editor, width=12).pack(side=tk.RIGHT, padx=4)
 
         # ── 操作按钮 ──
         af = ttk.Frame(main); af.pack(fill=tk.X, pady=(0, 6))
@@ -454,6 +490,72 @@ class MatchApp:
             if ch: ch[0].configure(text=str(i + 1))
 
     # ==================== 匹配 ====================
+    def _open_dp_editor(self):
+        """弹出窗口编辑 DP代码 → 城市的映射字典"""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("DP 代码 → 目的地城市 映射")
+        dlg.geometry("420x480")
+        dlg.resizable(True, True)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        main = ttk.Frame(dlg, padding=10)
+        main.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main, text="DP代码 → 城市名，匹配时从 Reference 自动解析 Destination",
+                  foreground="gray").pack(anchor=tk.W, pady=(0, 8))
+
+        # 可滚动表格
+        canvas = tk.Canvas(main, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 表头
+        ttk.Label(inner, text="DP 代码", width=12, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=0, padx=2, pady=2)
+        ttk.Label(inner, text="→", width=3).grid(row=0, column=1)
+        ttk.Label(inner, text="目的地城市", width=22, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=2, padx=2, pady=2)
+
+        entries = []
+        for i, (code, city) in enumerate(sorted(self.dp_map.items())):
+            code_var = tk.StringVar(value=code)
+            city_var = tk.StringVar(value=city)
+            ttk.Entry(inner, textvariable=code_var, width=14).grid(row=i + 1, column=0, padx=2, pady=1)
+            ttk.Label(inner, text="→", width=3).grid(row=i + 1, column=1)
+            ttk.Entry(inner, textvariable=city_var, width=24).grid(row=i + 1, column=2, padx=2, pady=1)
+            entries.append((code_var, city_var))
+
+        # 按钮
+        bf = ttk.Frame(main)
+        bf.pack(fill=tk.X, pady=(8, 0))
+
+        def save():
+            new_map = {}
+            for cv, nv in entries:
+                c = cv.get().strip()
+                n = nv.get().strip()
+                if c and n:
+                    new_map[c] = n
+            if new_map:
+                self.dp_map = new_map
+                self.log(f"DP 映射已更新: {len(self.dp_map)} 条", "info")
+            dlg.destroy()
+
+        def add_row():
+            ttk.Entry(inner, textvariable=tk.StringVar(value=""), width=14).grid(row=len(entries) + 1, column=0, padx=2, pady=1)
+            ttk.Label(inner, text="→", width=3).grid(row=len(entries) + 1, column=1)
+            ttk.Entry(inner, textvariable=tk.StringVar(value=""), width=24).grid(row=len(entries) + 1, column=2, padx=2, pady=1)
+            entries.append((tk.StringVar(value=""), tk.StringVar(value="")))
+            canvas.yview_moveto(1.0)
+
+        ttk.Button(bf, text="+ 添加行", command=add_row).pack(side=tk.LEFT)
+        ttk.Button(bf, text="💾 保存", command=save).pack(side=tk.RIGHT)
+        ttk.Button(bf, text="取消", command=dlg.destroy).pack(side=tk.RIGHT, padx=4)
+
     def _start_matching(self):
         if not self.mapping_rows:
             messagebox.showwarning("提示", "请至少配置一对字段映射")
@@ -528,14 +630,20 @@ class MatchApp:
             note_ti = next((i for i, h in enumerate(self.tgt_headers) if norm(h).lower() == "note"), -1)
             note_mapped = any(si == note_si and ti == note_ti for si, ti, _, _ in cmaps)
 
+            # Destination 字段不从源文件取值，改为从 Reference 解析
+            dest_ti = next((ti for si, ti, sn, tn in cmaps if "destination" in tn.lower()), -1)
+
             for ti_, row in enumerate(self.tgt_rows):
                 k = str(row[tki]).strip() if tki < len(row) else ""
                 if not k: skipped += 1; continue
                 if k not in idx: unmatched += 1; continue
                 srow, shn, sri = idx[k]
                 matched += 1
-                for sc, tc, _, _ in cmaps:
-                    v = srow[sc] if sc < len(srow) else ""
+                for sc, tc, sn, tn in cmaps:
+                    if tc == dest_ti:
+                        v = extract_destination(k, self.dp_map)  # 从 Reference 解析目的地
+                    else:
+                        v = srow[sc] if sc < len(srow) else ""
                     if v is not None and str(v).strip():
                         row[tc] = v
                         tws.cell(row=ti_ + 2, column=tc + 1).value = v
