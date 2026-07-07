@@ -157,6 +157,24 @@ def copy_images_for_row(source_wb, sheet_name, src_row_0based, target_ws, tgt_ro
             copied += 1
         except Exception: pass
     return copied
+
+# ============================================================ 默认映射 ============================================================
+
+DEFAULT_MAPPINGS = [
+    ("Destination", "Destination"),
+    ("AWB", "Bill of Lading No. (AWB, B/L)"),
+    ("Plate/车牌", "License Plate No."),
+    ("Actual Date & Time \nfor arrival", "ATA (Actual Arrival"),
+    ("Acual Date & Time \nfor arrival", "ATA (Actual Arrival"),
+    ("Planned Date & Time \nfor loading", "ETA (Planned Pickup"),
+    ("Planned Time \nfor loading", "ETA (Planned Pickup"),
+    ("Cartons", "Number of Boxes"),
+    ("Note", "Note"),
+    ("Weight", "Weight"),
+    ("Price/车费", "Price"),
+    ("Trucker/车队", "Trucker"),
+]
+
 def extract_destination(ref, dp_map=None):
     """从 Reference 中提取 DP 代码并映射为目的地城市名。
     例: TEM-SKY-DPHAGE-060726-4 → Hagen
